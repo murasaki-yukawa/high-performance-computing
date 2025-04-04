@@ -1,0 +1,109 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from multiprocessing import Process, Pipe
+import time
+
+# Клеточный автомат - мультипроцессинг
+
+rule = np.array([0, 1, 1, 1, 0, 1, 1, 0], dtype=np.uint8)
+
+rule_ = {
+	'111': 0,
+	'110': 1,
+	'101': 1,
+	'100': 0,
+	'011': 1,
+	'010': 1,
+	'001': 1,
+	'000': 0
+	}
+
+
+def cell_automat(start, end, rule, T, send_L, send_R, recv_L, recv_R, res):
+	N = end - start
+	evolution = np.zeros((T, N), dtype=np.uint8)
+	state0 = np.random.randint(2, size=N)
+	evolution[0, :] = state0
+
+	for t in range(1, T):
+		send_L.send(state0[0])
+		send_R.send(state0[-1])
+
+		ghostR = recv_R.recv()
+		ghostL = recv_L.recv()
+
+		# state1 = np.zeros(N, dtype=np.uint8)
+		#
+		# for i in range(N):
+		# 	L = ghostL if i == 0 else state0[i-1]
+		# 	C = state0[i]
+		# 	R = ghostR if i == N - 1 else state0[i+1]
+		# 	state1[i] = rule_.get(f"{L}{C}{R}", 0)
+
+		L = np.empty(N, dtype=np.uint8)
+		R = np.empty(N, dtype=np.uint8)
+		C = state0.copy()
+
+		L[0] = ghostL
+		L[1:] = state0[:-1]
+		R[:-1] = state0[1:]
+		R[-1] = ghostR
+
+		# next_state = np.vectorize(lambda l, c, r: rule_.get(f"{l}{c}{r}", 0))
+		# state1 = next_state(L, C, R)
+
+		index = L * 4 + C * 2 + R
+		state1 = rule[index]
+
+		state0 = state1
+		evolution[t, :] = state0
+
+	res.send(evolution)
+	res.close()
+
+
+if __name__ == '__main__':
+	time_start = time.time()
+
+	N = 1000
+	T = N
+
+	R2_recv, L1_send = Pipe()
+	L2_recv, R1_send = Pipe()
+	R1_recv, L2_send = Pipe()
+	L1_recv, R2_send = Pipe()
+
+	res1, res_p1 = Pipe()
+	res2, res_p2 = Pipe()
+
+	p1 = Process(target=cell_automat, args=(0, N // 2, rule, T, L1_send, R1_send, L1_recv, R1_recv, res_p1))
+	p2 = Process(target=cell_automat, args=(N // 2, N, rule, T, L2_send, R2_send, L2_recv, R2_recv, res_p2))
+
+	p1.start()
+	p2.start()
+
+	evolution1 = res1.recv()
+	evolution2 = res2.recv()
+
+	p1.join()
+	p2.join()
+
+	evolution = np.hstack((evolution1, evolution2))
+
+	time_end0 = time.time()
+	T = time_end0 - time_start
+	print(f"{T:.6f} сек")
+
+	plt.figure(figsize=(10, 10))
+	plt.rc('font', size=16)
+	plt.imshow(evolution, cmap='binary')
+	plt.ylabel('Эволюция')
+	plt.title("Клеточный автомат")
+
+	plt.tight_layout()
+	plt.show()
+
+	time_end1 = time.time()
+	T1 = time_end1 - time_start
+	print(f"{T1:.6f} сек")
+
