@@ -1,0 +1,67 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+
+# Клеточный автомат
+
+time_start = time.time()
+
+
+
+
+rule = np.array([0, 1, 1, 1, 0, 1, 1, 0], dtype=np.uint8)
+
+rule_ = {
+	'111': 0,
+	'110': 1,
+	'101': 1,
+	'100': 0,
+	'011': 1,
+	'010': 1,
+	'001': 1,
+	'000': 0
+	}
+
+N = 10000
+T = N
+evolution = np.empty((T, N), dtype=bool)
+
+state0 = np.random.randint(2, size=N)
+evolution[0, :] = state0
+
+for t in range(T):
+	state1 = np.zeros(N, dtype=np.uint8)
+	# ghostR = state0[0]
+	# ghostL = state0[-1]
+
+	L = np.roll(state0, 1)
+	R = np.roll(state0, -1)
+	C = state0
+
+	# next_state = np.vectorize(lambda l, c, r: rule_.get(f"{l}{c}{r}", 0))
+	# state1 = next_state(L, C, R)
+
+	index = L * 4 + C * 2 + R
+	state1 = rule[index]
+
+	state0 = state1
+	evolution[t, :] = state0
+
+
+time_end0 = time.time()
+T = time_end0 - time_start
+print(f"{T:.6f} сек")
+
+plt.figure(figsize=(10, 10))
+plt.rc('font', size=16)
+
+plt.imshow(evolution, cmap='binary')
+plt.ylabel('Эволюция')
+plt.title("Клеточный автомат")
+
+plt.tight_layout()
+plt.show()
+
+time_end1 = time.time()
+T1 = time_end1 - time_start
+print(f"{T1:.6f} сек")
