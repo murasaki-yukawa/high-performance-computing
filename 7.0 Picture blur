@@ -1,0 +1,123 @@
+import cupy as cp
+import matplotlib.pyplot as plt
+from cupyx import jit
+import time
+from PIL import Image
+
+
+# Размытие цветной картинки
+
+
+@jit.rawkernel()
+def kernel(image, nx, ny, d_pattern_blur_, pattern_blur_size):
+	bid = jit.blockIdx.z * jit.gridDim.x * jit.gridDim.y + jit.blockIdx.y * jit.gridDim.x + jit.blockIdx.x
+	tid = jit.threadIdx.z * jit.blockDim.x * jit.blockDim.y + jit.threadIdx.y * jit.blockDim.x + jit.threadIdx.x
+	gid = tid + bid * jit.blockDim.x * jit.blockDim.y * jit.blockDim.z
+
+	i = gid // nx
+	j = gid % nx
+
+	mid_k = pattern_blur_size // 2
+	sum_value = 0.0
+
+	for ki in range(-mid_k, mid_k + 1):
+		for kj in range(-mid_k, mid_k + 1):
+			ni = min(max(i + kj, 0), ny - 1)
+			nj = min(max(j + ki, 0), nx - 1)
+			image_value = float(image[ni, nj])
+			kernel_value = float(d_pattern_blur_[ki + mid_k, kj + mid_k])
+			sum_value += image_value * kernel_value
+
+	image[i, j] = sum_value
+
+
+
+def d_blur(d_image_, d_pattern_blur_):
+	d_out_ = d_image_
+	ny, nx, _ = d_out_.shape
+	d_pattern_blur_size = d_pattern_blur_.shape[0]
+
+	d_pattern_blur_increase = cp.zeros((ny, nx), dtype=cp.float32)
+	py, px = (ny - d_pattern_blur_.shape[0]) // 2, (nx - d_pattern_blur_.shape[1]) // 2
+	d_pattern_blur_increase[py:py + d_pattern_blur_.shape[0], px:px + d_pattern_blur_.shape[1]] = d_pattern_blur_
+
+	d_image_r, d_image_g, d_image_b = d_image_[:, :, 0], d_image_[:, :, 1], d_image_[:, :, 2]
+
+
+
+	blocks = (32, 32, 1)
+	thread = (16, 32, 1)
+	kernel(blocks, thread, (d_image_r, nx, ny, d_pattern_blur_, d_pattern_blur_size))
+	kernel(blocks, thread, (d_image_g, nx, ny, d_pattern_blur_, d_pattern_blur_size))
+	kernel(blocks, thread, (d_image_b, nx, ny, d_pattern_blur_, d_pattern_blur_size))
+
+
+	d_out_[:, :, 0] = d_image_r
+	d_out_[:, :, 1] = d_image_g
+	d_out_[:, :, 2] = d_image_b
+
+	return d_out_
+
+
+
+
+def load_image(image_path):
+	image_rgb = Image.open(image_path)
+	image_rgb = image_rgb.convert("RGB")
+	image_rgb_data = cp.array(image_rgb).astype(cp.float32)
+
+	return image_rgb_data
+
+
+if __name__ == '__main__':
+	time_start = time.time()
+
+	d_image = load_image('tv_mira1.jpg')
+	# print(d_image.shape)
+
+
+	d_pattern_blur = cp.array([
+		[1, 2, 2, 2, 1],
+		[2, 2, 3, 2, 2],
+		[2, 3, 4, 3, 2],
+		[2, 2, 3, 2, 2],
+		[1, 2, 2, 2, 1],
+		], dtype=cp.float32)
+
+	# d_pattern_blur = cp.array([
+	# 	[0, 0, 0],
+	# 	[0, 0, 0],
+	# 	[0, 0, 0]
+	# 	], dtype=cp.float32)
+
+	d_pattern_blur /= cp.sum(d_pattern_blur)
+
+	d_image1 = cp.copy(d_image)
+
+	for _ in range(5):
+			d_out = d_blur(d_image1, d_pattern_blur)
+			d_image1 = d_out
+
+	# --------------------------------------------------
+
+	time_end0 = time.time()
+	T = time_end0 - time_start
+	print(f"{T:.6f} сек")
+
+	plt.figure(figsize=(6, 8))
+	plt.subplot(2, 1, 1)
+	plt.title('Original')
+	plt.imshow(cp.asnumpy(d_image.clip(0, 255).astype(cp.uint8)))
+	plt.axis('off')
+
+	plt.subplot(2, 1, 2)
+	plt.title('Blur')
+	plt.imshow(cp.asnumpy(d_out.clip(0, 255).astype(cp.uint8)))
+	plt.axis('off')
+
+	plt.show()
+	plt.tight_layout()
+
+	time_end1 = time.time()
+	T = time_end1 - time_start
+	print(f"{T:.6f} сек")
