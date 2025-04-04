@@ -1,0 +1,71 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+from matplotlib.animation import FuncAnimation, PillowWriter
+import time
+from numba import njit
+
+# Фрактал Жулиа + numba
+
+
+@njit
+def fractal(Re, Im, C, max_iter):
+	N = len(Re)
+	n = np.zeros((len(C), N, N), dtype=np.uint8)
+
+	for frame, c in enumerate(C):
+		for q in range(N):
+			for p in range(N):
+				Z = Re[q] + 1j * Im[p]
+				for i in range(max_iter):
+					Z = Z ** 2 + c
+					n[frame, q, p] += 1
+					if np.abs(Z) > 2:
+						break
+	return n
+
+time_start = time.time()
+N0, N1 = -2, 2
+N = 1000
+Re = np.linspace(N0, N1, N)
+Im = np.linspace(N0, N1, N)
+max_iter = 50
+a = np.linspace(0, 2 * np.pi, 16) #-----------------
+C = np.exp(1j * a)
+
+
+n = fractal(Re, Im, C, max_iter)
+
+
+time_end0 = time.time()
+T = time_end0 - time_start
+print(f"{T:.6f} сек")
+
+
+
+plt.rc('font', size=16)
+fig, ax = plt.subplots(figsize=(10, 10))
+image = ax.imshow(n[0], cmap='gray_r', extent=[N0, N1, N0, N1])
+ax.set_xlabel("Re")
+ax.set_ylabel("Im")
+
+
+def update(frame):
+	image.set_data(n[frame])
+	c_title = f"C = {round(np.real(C[frame]), 3)} + {round(np.imag(C[frame]), 3)}j"
+	ax.set_title(r"$z_{n+1} = z_n^2 + C; $ " + c_title)
+	return image
+
+
+A = FuncAnimation(fig, update, frames=len(C), repeat=True)
+
+desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+gif_path = os.path.join(desktop_path, 'фрактал Жулиа.gif')
+A.save(gif_path, writer=PillowWriter(fps=16)) #-----------------
+
+plt.show()
+
+
+time_end1 = time.time()
+T1 = time_end1 - time_start
+print(f"{T1:.6f} сек")
