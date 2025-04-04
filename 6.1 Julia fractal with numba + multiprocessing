@@ -1,0 +1,102 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+from matplotlib.animation import FuncAnimation, PillowWriter
+import time
+import multiprocessing as mp
+from numba import jit
+
+#Фрактал Жулиа - мультипроцессинг + numba
+# без MP  быстрее, почему?
+
+
+@jit(nopython=True)
+def z(Re, Im):
+	return Re + 1j * Im[:, np.newaxis]
+
+
+@jit(nopython=True)
+def fractal(q, c, Re, Im, N, max_iter):
+	# Z = z(Re, Im)
+	# Z = Z.reshape((N, N))
+	frac = np.zeros((N, N), dtype=np.uint8)
+
+	# for i in range(max_iter):
+	# 	for x in range(N):
+	# 		for y in range(N):
+	# 			if abs(Z[x, y]) < 2:
+	# 				Z[x, y] = Z[x, y] ** 2 + c
+	# 				frac[x, y] += 1
+
+
+	for i in range(N):
+		for j in range(N):
+			Z = Re[i] + 1j * Im[j]
+			for k in range(max_iter):
+				Z = Z ** 2 + c
+				frac[i, j] += 1
+				if np.abs(Z) > 2:
+					break
+
+
+	return q, frac
+
+
+def collect(results, n):
+	for q, frac in results:
+		n[q, :, :] = frac
+
+
+if __name__ == '__main__':
+	time_start = time.time()
+
+	N0, N1 = -2, 2
+	N = 1000
+	max_iter = 50
+	a = np.linspace(0, 2 * np.pi, 64)  #-----------------
+	C = np.exp(1j * a)
+
+	Re = np.linspace(N0, N1, N)
+	Im = np.linspace(N0, N1, N)
+
+	n = np.zeros((len(C), N, N), dtype=np.uint8)
+
+
+	pool = mp.Pool(mp.cpu_count())
+	results = pool.starmap(fractal, [(q, c, Re, Im, N, max_iter) for q, c in enumerate(C)])
+	collect(results, n)
+	pool.close()
+	pool.join()
+
+
+	time_end0 = time.time()
+	T = time_end0 - time_start
+	print(f"{T:.6f} сек")
+
+
+	plt.rc('font', size=16)
+	fig, ax = plt.subplots(figsize=(10, 10))
+
+	image = ax.imshow(n[0], cmap='gray_r', extent=[N0, N1, N0, N1])
+	ax.set_xlabel("Re")
+	ax.set_ylabel("Im")
+
+	def update(frame):
+		image.set_data(n[frame])
+		c_title = f"C = {round(np.real(C[frame]), 3)} + {round(np.imag(C[frame]), 3)}j"
+		ax.set_title(r"$z_{n+1} = z_n^2 + C; $ " + c_title)
+		return image
+
+	A = FuncAnimation(fig, update, frames=len(C), repeat=True)
+
+	desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+	gif_path = os.path.join(desktop_path, 'фрактал Жулиа.gif')
+	A.save(gif_path, writer=PillowWriter(fps=16))  #-----------------
+
+	plt.show()
+
+
+	time_end1 = time.time()
+	T1 = time_end1 - time_start
+	print(f"{T1:.6f} сек")
+
