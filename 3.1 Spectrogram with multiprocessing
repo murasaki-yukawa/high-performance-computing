@@ -1,0 +1,75 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import multiprocessing as mp
+import time
+
+#Спектрограмма - мультипроцессинг
+
+start_time = time.time()
+
+N = 1000
+
+t_min = 0
+t_max = 40 * 2 * np.pi
+t = np.linspace(t_min, t_max, N)
+
+duration1 = 4 * np.pi
+duration2 = 3 * np.pi
+duration3 = 2 * np.pi
+
+y1 = np.exp(-(t-100)**2 / 2 / duration1 ** 2) * np.sin(t)
+y2 = np.exp(-(t-125)**2 / 2 / duration2 ** 2) * np.sin(2 * t)
+y3 = np.exp(-(t-150)**2 / 2 / duration3 ** 2) * np.sin(3 * t)
+y = y1 + y2 + y3
+
+length = np.pi
+t_shift_min = t_min + 5 * length
+t_shift_max = t_max - 5 * length
+t_shift = np.linspace(t_shift_min, t_shift_max, N)
+
+def gauss_window(length_i, t_i, t_shift_i): return np.exp(-(t_i-t_shift_i)**2 / 2 / length_i ** 2)
+
+
+h = t[1] - t[0]
+freq = np.fft.fftfreq(N, h) * 2 * np.pi
+spectrogram = np.zeros((len(t_shift), (len(t))))
+
+
+def culc_spg(i, ti):
+    W_t = gauss_window(length, t, ti)
+    window = W_t * y
+    spectrum = np.fft.fft(window, n=N) * h
+    return i, np.abs(spectrum)
+
+def collect_res(result):
+    i, spectrum = result
+    spectrogram[i, :] = spectrum
+
+
+if __name__ == '__main__':
+    pool = mp.Pool(mp.cpu_count())
+
+    for i, ti in enumerate(t_shift):
+        pool.apply_async(culc_spg, args=(i, ti), callback=collect_res)
+    pool.close()
+    pool.join()
+
+
+    end_time = time.time()
+    T = end_time - start_time
+    print(f"{T:.6f} сек")
+
+
+    plt.figure(figsize=(8, 8))
+    plt.rc('font', size=16)
+
+    plt.imshow(spectrogram, aspect='auto', origin='lower', extent=[0, 25, t_min, t_max], cmap='gray')
+    plt.xlim(0, 5)
+    plt.ylim(t_min, t_max)
+    plt.ylabel('время')
+    plt.xlabel('частота')
+    plt.title('спектрограмма')
+    plt.tight_layout()
+    plt.show()
+
+# Выигрыша нет
