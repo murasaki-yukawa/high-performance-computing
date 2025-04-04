@@ -1,0 +1,90 @@
+from mpi4py import MPI
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+
+
+#Клеточный автомат + MPI
+# mpiexec -n 4 python 5v1_4+MPI.py
+
+def cell_automat(start, end, rule, T, rank, size, comm):
+
+	N = end - start
+	evolution = np.zeros((T, N), dtype=bool)
+	state0 = np.random.randint(2, size=N)
+	evolution[0, :] = state0
+
+	for t in range(1, T):
+
+		# Отправляем левый, получаем правый
+		if rank > 0:
+			ghostL = comm.sendrecv(sendobj=state0[-1].item(), dest=rank - 1, source=rank - 1)
+		else:
+			ghostL = comm.sendrecv(sendobj=state0[-1].item(), dest=size - 1, source=size - 1)
+
+		# Отправляем правый, получаем левый
+		if rank < size - 1:
+			ghostR = comm.sendrecv(sendobj=state0[0].item(), dest=rank + 1, source=rank + 1)
+		else:
+			ghostR = comm.sendrecv(sendobj=state0[0].item(), dest=0, source=0)
+
+
+		L = np.empty(N, dtype=np.uint8)
+		R = np.empty(N, dtype=np.uint8)
+		C = state0.copy()
+
+		L[0] = ghostL
+		L[1:] = state0[:-1]
+		R[:-1] = state0[1:]
+		R[-1] = ghostR
+
+		index = L * 4 + C * 2 + R
+		state1 = rule[index]
+
+		state0 = state1
+		evolution[t, :] = state0
+
+	return evolution
+
+
+if __name__ == '__main__':
+
+	N = 10000
+	T = N
+	rule = np.array([0, 1, 1, 1, 0, 1, 1, 0], dtype=np.uint8)
+
+	comm = MPI.COMM_WORLD
+	rank = comm.Get_rank()
+	size = comm.Get_size()
+
+
+	start = rank * (N // size)
+	end = (rank + 1) * (N // size) if rank != size - 1 else N
+
+	time_start = time.time()
+
+	evolution = cell_automat(start, end, rule, T, rank, size, comm)
+	evolution0 = comm.gather(evolution, root=0)
+
+	time_end0 = time.time()
+	T_process = time_end0 - time_start
+
+	if rank == 0:
+		evolution = np.hstack(evolution0)
+		# evolution = np.vstack(evolution0)
+
+		print(f"{T_process:.6f} сек")
+
+		plt.figure(figsize=(10, 10))
+		plt.rc('font', size=16)
+		plt.imshow(evolution, cmap='binary')
+		plt.ylabel('Эволюция')
+		plt.title("Клеточный автомат")
+
+		plt.tight_layout()
+		plt.show()
+
+	time_end1 = time.time()
+	if rank == 0:
+		T1 = time_end1 - time_start
+		print(f" {T1:.6f} сек")
