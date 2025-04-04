@@ -1,0 +1,83 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+from matplotlib.animation import FuncAnimation, PillowWriter
+import time
+
+#Фрактал Жулиа
+# через meshgrid - медленно
+
+
+time_start = time.time()
+
+N0, N1 = -2, 2
+N = 1000
+
+re = np.linspace(N0, N1, N)
+im = np.linspace(N0, N1, N)
+Re, Im = np.meshgrid(re, im)
+
+
+max_iter = 50
+
+a = np.linspace(0, 2 * np.pi, 16)
+C = np.exp(1j * a)
+
+
+plt.rc('font', size=16)
+fig, ax = plt.subplots(figsize=(10, 10))
+
+n = np.zeros((len(C), N, N), dtype=np.uint8)
+
+for frame, c in enumerate(C):
+
+    Z = Re + 1j * Im
+    # n = np.zeros(Z.shape, dtype=int)
+    Z_less_2 = np.ones(Z.shape, dtype=bool)
+
+    for i in range(max_iter):
+
+        Z[Z_less_2] = Z[Z_less_2] ** 2 + c
+        mask = np.abs(Z) < 2
+        n[frame] += mask# * Z_less_2
+        Z_less_2 *= mask
+
+    # c_title = f"C = {round(np.real(c), 3)} + {round(np.imag(c), 3)}j"
+    #
+    # plt.figure(figsize=(10, 10))
+    # plt.rc('font', size=16)
+    # plt.imshow(n , extent=[N0, N1, N0, N1], cmap='gray_r')
+    #
+    # plt.title(r"$z_{n+1} = z_n^2 + C; $ " + c_title)
+    # plt.xlabel("Re")
+    # plt.ylabel("Im")
+    #
+    # plt.tight_layout()
+    # plt.show()
+
+
+time_end0 = time.time()
+T = time_end0 - time_start
+print(f"{T:.6f} сек")
+
+image = ax.imshow(n[0], cmap='gray_r', extent=[N0, N1, N0, N1])
+ax.set_xlabel("Re")
+ax.set_ylabel("Im")
+
+def update(frame):
+    image.set_data(n[frame])
+    c_title = f"C = {round(np.real(C[frame]), 3)} + {round(np.imag(C[frame]), 3)}j"
+    ax.set_title(r"$z_{n+1} = z_n^2 + C; $ " + c_title)
+    return image
+
+A = FuncAnimation(fig, update, frames=len(C), repeat=True)
+
+desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+gif_path = os.path.join(desktop_path, 'фрактал Жулиа.gif')
+A.save(gif_path, writer=PillowWriter(fps=8))
+
+plt.show()
+
+time_end1 = time.time()
+T1 = time_end1 - time_start
+print(f"{T1:.6f} сек")
