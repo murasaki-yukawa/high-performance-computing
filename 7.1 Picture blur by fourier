@@ -1,0 +1,146 @@
+import cupy as cp
+import matplotlib.pyplot as plt
+from cupyx import jit
+import time
+from PIL import Image
+
+# Размытие цветной картинки + фурье
+
+
+
+@jit.rawkernel()
+def kernel(image_fft_, d_pattern_blur_fft_, nx, ny):
+	bid = jit.blockIdx.z * jit.gridDim.x * jit.gridDim.y + jit.blockIdx.y * jit.gridDim.x + jit.blockIdx.x
+	tid = jit.threadIdx.z * jit.blockDim.x * jit.blockDim.y + jit.threadIdx.y * jit.blockDim.x + jit.threadIdx.x
+	gid = tid + bid * jit.blockDim.x * jit.blockDim.y * jit.blockDim.z
+
+	i = gid // nx
+	j = gid % nx
+
+	if i < nx and j < ny:
+		image_fft_[i, j] = image_fft_[i, j] * d_pattern_blur_fft_[i, j]
+
+
+
+def d_blur_fft(d_image_, d_pattern_blur_):
+	d_out_ = cp.copy(d_image_)
+	d_out_ = d_image_
+	ny, nx, _ = d_out_.shape
+
+	d_pattern_blur_increase = cp.zeros((ny, nx), dtype=cp.float32)
+	py, px = (ny - d_pattern_blur_.shape[0]) // 2, (nx - d_pattern_blur_.shape[1]) // 2
+	d_pattern_blur_increase[py:py + d_pattern_blur_.shape[0], px:px + d_pattern_blur_.shape[1]] = d_pattern_blur_
+	d_pattern_blur_fft = cp.fft.fft2(d_pattern_blur_increase)
+
+	d_image_r, d_image_g, d_image_b = d_out_[:, :, 0], d_out_[:, :, 1], d_out_[:, :, 2]
+
+	d_out_image_r = cast_blur(d_image_r, d_pattern_blur_fft, nx, ny)
+	d_out_image_g = cast_blur(d_image_g, d_pattern_blur_fft, nx, ny)
+	d_out_image_b = cast_blur(d_image_b, d_pattern_blur_fft, nx, ny)
+
+	# d_image_r_fft = cp.fft.fft2(d_image_r)
+	# d_image_g_fft = cp.fft.fft2(d_image_g)
+	# d_image_b_fft = cp.fft.fft2(d_image_b)
+	#
+	#
+	# blocks = (32, 32, 1)
+	# thread = (16, 26, 1)
+	# kernel(blocks, thread, (d_image_r_fft, d_pattern_blur_fft, nx, ny))
+	# kernel(blocks, thread, (d_image_g_fft, d_pattern_blur_fft, nx, ny))
+	# kernel(blocks, thread, (d_image_b_fft, d_pattern_blur_fft, nx, ny))
+	#
+	#
+	# d_out_image_r = cp.fft.ifft2(d_image_r_fft).real
+	# d_out_image_g = cp.fft.ifft2(d_image_g_fft).real
+	# d_out_image_b = cp.fft.ifft2(d_image_b_fft).real
+
+	d_out_ = cp.stack([d_out_image_r, d_out_image_g, d_out_image_b], axis=-1)
+	d_out_ = cp.roll(d_out_, shift=(ny // 2, nx // 2), axis=(0, 1))
+
+	return d_out_
+
+
+
+def cast_blur(image_, d_pattern_blur_fft_, nx, ny):
+	d_image_fft = cp.fft.fft2(image_)
+
+	blocks = (8, 8, 8)
+	thread = (16, 8, 8)
+	kernel(blocks, thread, (d_image_fft, d_pattern_blur_fft_, nx, ny))
+
+	d_out_ = cp.fft.ifft2(d_image_fft).real
+
+	return d_out_
+
+
+
+
+def load_image(image_path):
+	image_rgb = Image.open(image_path)
+	image_rgb = image_rgb.convert("RGB")
+	image_rgb_data = cp.array(image_rgb).astype(cp.float32)
+	return image_rgb_data
+
+
+if __name__ == '__main__':
+	time_start = time.time()
+
+	d_image = load_image('tv_mira.jpg')
+	# для не квадратных артефакты появляются
+
+
+	# d_pattern_blur = cp.array([
+	# 	[1, 2, 2, 2, 1],
+	# 	[2, 2, 3, 2, 2],
+	# 	[2, 3, 4, 3, 2],
+	# 	[2, 2, 3, 2, 2],
+	# 	[1, 2, 2, 2, 1],
+	# 	], dtype=cp.float32)
+
+	d_pattern_blur = cp.array([
+		[1, 2, 1],
+		[2, 4, 2],
+		[1, 2, 1]
+		], dtype=cp.float32)
+
+	# d_pattern_blur = cp.array([
+	# 	[0, 0, 0],
+	# 	[0, 0, 0],
+	# 	[0, 0, 0]
+	# 	], dtype=cp.float32)
+
+	d_pattern_blur /= cp.sum(d_pattern_blur)
+
+	d_image1 = cp.copy(d_image)
+
+	for _ in range(5):
+			d_out = d_blur_fft(d_image1, d_pattern_blur)
+			d_image1 = d_out
+
+
+
+
+
+	# --------------------------------------------------
+
+	time_end0 = time.time()
+	T = time_end0 - time_start
+	print(f"{T:.6f} сек")
+
+	plt.figure(figsize=(5, 10))
+	plt.subplot(2, 1, 1)
+	plt.title('Original')
+	plt.imshow(cp.asnumpy(d_image.clip(0, 255).astype(cp.uint8)))
+	plt.axis('off')
+
+	plt.subplot(2, 1, 2)
+	plt.title('Blur')
+	plt.imshow(cp.asnumpy(d_out.clip(0, 255).astype(cp.uint8)))
+	plt.axis('off')
+
+	plt.show()
+	plt.tight_layout()
+
+	time_end1 = time.time()
+	T = time_end1 - time_start
+	print(f"{T:.6f} сек")
