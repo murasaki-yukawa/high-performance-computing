@@ -1,0 +1,77 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import time
+
+#Спектрограмма
+
+
+start_time = time.time()
+
+N = 2000
+
+t_min = 0
+t_max = 80 * 2 * np.pi
+t = np.linspace(t_min, t_max, N)
+h = t[1] - t[0]
+
+duration1 = 6 * np.pi
+duration2 = 6 * np.pi
+duration3 = 3 * np.pi
+
+y1 = np.sin(t + 0.01 * t ** 2) * np.exp(-(t-100)**2 / 2 / duration1 ** 2)
+y2 = np.sin(2 * t) * np.exp(-(t-175)**2 / 2 / duration2 ** 2)
+y3 = np.sin(5 * t) * np.exp(-(t-200)**2 / 2 / duration3 ** 2)
+
+y = y1 + y2 + y3
+
+
+length = 2 * np.pi
+K = int(length / h)
+t_shift_min = t_min + 5 * K * h
+t_shift_max = t_max - 5 * K * h
+t_shift = np.linspace(t_shift_min, t_shift_max, N-10*K)
+
+def gauss_window(length_i, t_i, t_shift_i): return np.exp(-(t_i-t_shift_i)**2 / 2 / length_i ** 2)
+
+
+
+freq = np.fft.fftfreq(N, h) * 2 * np.pi
+freq = freq[:N//2]
+spectrogram = np.zeros((len(t_shift), (len(t))))
+W_t = gauss_window(length, t, t_shift[0])
+
+for i, ti in enumerate(t_shift):
+    # W_t = gauss_window(length, t, ti)
+    window = W_t * y
+    spectrum = np.fft.fft(window, n=N) * h
+    spectrogram[i, :] = np.abs(spectrum)
+    W_t = np.roll(W_t, 1)
+
+
+end_time = time.time()
+T = end_time - start_time
+print(f"{T:.6f} сек")
+
+
+
+plt.figure(figsize=(8, 8))
+plt.rc('font', size=16)
+
+plt.imshow(spectrogram.T[0:N//2, 0:N//2], extent=[t_shift_min, t_shift_max, freq[0], freq[N//2-1]], aspect='auto', origin='lower', cmap='gray')
+plt.ylim(0, 8)
+plt.xlabel('время')
+plt.ylabel('частота')
+plt.title('спектрограмма')
+
+plt.tight_layout()
+plt.show()
+
+
+# N = 2000
+# без roll 0.232436 сек
+# c roll 0.178222 сек
+
+# N = 10000
+# без roll 6.090812 сек
+# c roll 3.646401 сек
+
